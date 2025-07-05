@@ -1,0 +1,171 @@
+@page "/profile"
+@using SessiaBlazor.Model
+@inject HttpClient Http
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="register-bg-orange">
+    <div class="register-card-orange shadow position-relative">
+        <h3 class="text-center mb-4">Профиль пользователя</h3>
+        @if (loading)
+        {
+            <div class="text-muted text-center">Загрузка профиля...</div>
+        }
+        else if (showError && user == null)
+        {
+            <div class="text-danger text-center">Пользователь не найден.</div>
+        }
+        else if (user != null)
+        {
+            <div class="mb-3">
+                <label class="form-label">Имя пользователя:</label>
+                <input class="form-control" @bind="user.UserName" readonly="@(!isEdit)" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Роль:</label>
+                <input class="form-control" value="@GetRoleName(user.RoleId)" readonly />
+            </div>
+            <div class="d-flex gap-2 mt-4">
+                @if (!isEdit)
+                {
+                    <button class="btn btn-orange w-100" @onclick="() => isEdit = true">Редактировать</button>
+                    <button class="btn btn-secondary w-100" @onclick="GoBack">Назад</button>
+                }
+                else
+                {
+                    <button class="btn btn-orange w-100" @onclick="SaveProfile">Сохранить</button>
+                    <button class="btn btn-secondary w-100" @onclick="CancelEdit">Отмена</button>
+                }
+            </div>
+            @if (!string.IsNullOrEmpty(error))
+            {
+                <div class="text-danger mt-3">@error</div>
+            }
+            @if (!string.IsNullOrEmpty(success))
+            {
+                <div class="text-success mt-3">@success</div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private User user;
+    private User originalUser;
+    private bool loading = true;
+    private bool isEdit = false;
+    private string error = null;
+    private string success = null;
+    private bool _profileLoaded = false;
+    private bool showError = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_profileLoaded)
+        {
+            try
+            {
+                var json = await JS.InvokeAsync<string>("localStorage.getItem", "currentUser");
+                if (string.IsNullOrEmpty(json))
+                {
+                    showError = true;
+                    loading = false;
+                    StateHasChanged();
+                    await Task.Delay(1200);
+                    Nav.NavigateTo("/login");
+                    return;
+                }
+                user = System.Text.Json.JsonSerializer.Deserialize<User>(json);
+                if (user == null || user.Id == 0)
+                {
+                    showError = true;
+                    loading = false;
+                    StateHasChanged();
+                    await Task.Delay(1200);
+                    Nav.NavigateTo("/login");
+                    return;
+                }
+                user = await Http.GetFromJsonAsync<User>($"api/user/{user.Id}");
+                if (user == null)
+                {
+                    showError = true;
+                    error = "Пользователь не найден в системе.";
+                }
+                else
+                {
+                    originalUser = new User
+                    {
+                        Id = user.Id,
+                        UserName = user.UserName,
+                        PasswordHash = user.PasswordHash,
+                        RoleId = user.RoleId
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                showError = true;
+                error = $"Ошибка загрузки профиля: {ex.Message}";
+                user = null;
+            }
+            loading = false;
+            _profileLoaded = true;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveProfile()
+    {
+        error = null;
+        success = null;
+        try
+        {
+            var update = new
+            {
+                UserName = user.UserName,
+                PasswordHash = user.PasswordHash,
+                RoleId = user.RoleId
+            };
+            var resp = await Http.PutAsJsonAsync($"api/user/{user.Id}", update);
+            if (resp.IsSuccessStatusCode)
+            {
+                isEdit = false;
+                success = "Профиль успешно обновлён";
+                originalUser.UserName = user.UserName;
+            }
+            else
+            {
+                error = "Ошибка при сохранении профиля";
+            }
+        }
+        catch
+        {
+            error = "Ошибка при сохранении профиля";
+        }
+    }
+
+    private void CancelEdit()
+    {
+        isEdit = false;
+        user.UserName = originalUser.UserName;
+        error = null;
+        success = null;
+    }
+
+    private void GoBack()
+    {
+        Nav.NavigateTo("/");
+    }
+
+    private string GetRoleName(int roleId)
+    {
+        return roleId switch
+        {
+            1 => "Мастер",
+            2 => "Менеджер",
+            3 => "Клиент",
+            _ => "Пользователь"
+        };
+    }
+} 

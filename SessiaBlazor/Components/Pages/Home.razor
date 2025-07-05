@@ -27,6 +27,7 @@
                     <button class="btn btn-orange w-100 mb-2" @onclick="GoToSpares">Запчасти</button>
                     <button class="btn btn-orange w-100 mb-2" @onclick="GoToUsers">Пользователи</button>
                     <button class="btn btn-orange w-100 mb-2" @onclick="GoToPayments">Платежи</button>
+                    <button class="btn btn-orange w-100 mb-2" @onclick="GoToProfile">Профиль</button>
                 </div>
             }
             else if (currentUser.RoleId == 1)
@@ -36,6 +37,7 @@
                 <div class="d-grid gap-2">
                     <button class="btn btn-orange w-100 mb-2" @onclick="GoToMyRequests">Мои заявки</button>
                     <button class="btn btn-orange w-100 mb-2" @onclick="GoToMyReviews">Мои отзывы</button>
+                    <button class="btn btn-orange w-100 mb-2" @onclick="GoToProfile">Профиль</button>
                 </div>
             }
             else if (currentUser.RoleId == 3)
@@ -51,6 +53,7 @@
                             </span>
                         }
                     </button>
+                    <button class="btn btn-orange w-100 mb-2" @onclick="GoToProfile">Профиль</button>
                 </div>
             }
             else
@@ -219,6 +222,7 @@
     private void GoToPayments() => Navigation.NavigateTo("/payments");
     private void GoToMyRequests() => Navigation.NavigateTo("/requests");
     private void GoToMyReviews() => Navigation.NavigateTo($"/master-reviews/{currentUser.Id}");
+    private void GoToProfile() => Navigation.NavigateTo("/profile");
 
     private async Task LoadNotificationHistory()
     {
