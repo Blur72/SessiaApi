@@ -1,0 +1,235 @@
+@page "/users"
+@inject HttpClient Http
+@rendermode InteractiveServer
+@inject IJSRuntime JS
+
+<div class="users-bg-orange">
+    <div class="users-card-orange shadow">
+        <h3 class="text-center mb-4">Пользователи</h3>
+        @if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="alert alert-danger">@errorMessage</div>
+        }
+        @if (users == null)
+        {
+            <p class="text-center">Загрузка...</p>
+        }
+        else
+        {
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Логин</th>
+                        <th>Роль</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var user in users)
+                    {
+                        <tr>
+                            <td>@user.Id</td>
+                            <td>@user.UserName</td>
+                            <td>@GetRoleName(user.RoleId)</td>
+                            <td>
+                                <button class="btn btn-orange btn-sm me-1" @onclick="() => EditUser(user)">✏️</button>
+                                <button class="btn btn-danger btn-sm" @onclick="() => DeleteUser(user.Id)">🗑️</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            <hr />
+            <h5 class="mb-2">Добавить пользователя</h5>
+            <EditForm Model="newUser" OnValidSubmit="AddUser">
+                <div class="row g-2">
+                    <div class="col">
+                        <InputText @bind-Value="newUser.UserName" class="form-control" placeholder="Логин" required />
+                    </div>
+                    <div class="col">
+                        <InputText @bind-Value="newUser.PasswordHash" class="form-control" placeholder="Пароль" required />
+                    </div>
+                    <div class="col">
+                        <InputNumber @bind-Value="newUser.RoleId" class="form-control" placeholder="Роль (цифра)" min="1" max="3" required />
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-orange w-100 mt-3">Добавить</button>
+            </EditForm>
+            @if (showEditForm && editingUser != null)
+            {
+                <div class="mb-4 mt-3 p-3" style="background:#fffbe6; border-radius:12px; border:1.5px solid #ff9800; max-width:600px; margin:auto;">
+                    <h5>Редактирование пользователя №@editingUser.Id</h5>
+                    <EditForm Model="editingUser" OnValidSubmit="SaveEditUser">
+                        <div class="row g-2">
+                            <div class="col">
+                                <InputText @bind-Value="editingUser.UserName" class="form-control" placeholder="Логин" required />
+                            </div>
+                            <div class="col">
+                                <InputText @bind-Value="editingUser.PasswordHash" class="form-control" placeholder="Пароль" required />
+                            </div>
+                            <div class="col">
+                                <InputNumber @bind-Value="editingUser.RoleId" class="form-control" placeholder="Роль (цифра)" min="1" max="3" required />
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-orange me-2 mt-3">Сохранить</button>
+                        <button type="button" class="btn btn-secondary mt-3" @onclick="() => showEditForm = false">Отмена</button>
+                    </EditForm>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+<style>
+.users-bg-orange {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #ff9800 0%, #ff3d00 100%);
+}
+.users-card-orange {
+    background: #fff;
+    border-radius: 22px;
+    padding: 2.7rem 2.2rem 2.2rem 2.2rem;
+    max-width: 700px;
+    width: 100%;
+    box-shadow: 0 10px 36px 0 rgba(255, 61, 0, 0.18);
+    transition: box-shadow 0.2s, transform 0.2s;
+    border: 1.5px solid #ff9800;
+    position: relative;
+    z-index: 2;
+}
+.btn-orange {
+    background: linear-gradient(90deg, #ff9800 0%, #ff3d00 100%);
+    border: none;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 1.1rem;
+    padding: 0.5rem 1.2rem;
+    color: #fff;
+    box-shadow: 0 2px 8px 0 rgba(255, 152, 0, 0.12);
+    transition: background 0.2s, box-shadow 0.2s;
+}
+.btn-orange:hover {
+    background: linear-gradient(90deg, #ff6d00 0%, #d50000 100%);
+    box-shadow: 0 4px 16px 0 rgba(255, 61, 0, 0.18);
+}
+</style>
+
+@code {
+    private SessiaBlazor.Model.User[] users;
+    private CreateUserRequest newUser = new();
+    private UpdateUserRequest editingUser;
+    private bool showEditForm = false;
+    private string errorMessage;
+
+    public class CreateUserRequest
+    {
+        public string UserName { get; set; }
+        public string PasswordHash { get; set; }
+        public int RoleId { get; set; }
+    }
+    public class UpdateUserRequest
+    {
+        public int Id { get; set; }
+        public string UserName { get; set; }
+        public string PasswordHash { get; set; }
+        public int RoleId { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUsers();
+    }
+
+    private async Task LoadUsers()
+    {
+        users = await Http.GetFromJsonAsync<SessiaBlazor.Model.User[]>("api/user");
+    }
+
+    private async Task AddUser()
+    {
+        errorMessage = null;
+        var req = new CreateUserRequest
+        {
+            UserName = newUser.UserName,
+            PasswordHash = newUser.PasswordHash,
+            RoleId = newUser.RoleId
+        };
+        var resp = await Http.PostAsJsonAsync("api/user", req);
+        if (resp.IsSuccessStatusCode)
+        {
+            await LoadUsers();
+            newUser = new();
+        }
+        else
+        {
+            errorMessage = $"Ошибка при добавлении: {resp.StatusCode}";
+            var details = await resp.Content.ReadAsStringAsync();
+            if (!string.IsNullOrWhiteSpace(details)) errorMessage += $"\n{details}";
+        }
+    }
+
+    private void EditUser(SessiaBlazor.Model.User user)
+    {
+        editingUser = new UpdateUserRequest
+        {
+            Id = user.Id,
+            UserName = user.UserName,
+            PasswordHash = string.Empty,
+            RoleId = user.RoleId
+        };
+        showEditForm = true;
+    }
+
+    private async Task SaveEditUser()
+    {
+        errorMessage = null;
+        var req = new UpdateUserRequest
+        {
+            Id = editingUser.Id,
+            UserName = editingUser.UserName,
+            PasswordHash = editingUser.PasswordHash,
+            RoleId = editingUser.RoleId
+        };
+        var resp = await Http.PutAsJsonAsync($"api/user/{editingUser.Id}", req);
+        if (resp.IsSuccessStatusCode)
+        {
+            showEditForm = false;
+            editingUser = null;
+            await LoadUsers();
+        }
+        else
+        {
+            errorMessage = $"Ошибка при сохранении: {resp.StatusCode}";
+            var details = await resp.Content.ReadAsStringAsync();
+            if (!string.IsNullOrWhiteSpace(details)) errorMessage += $"\n{details}";
+        }
+    }
+
+    private async Task DeleteUser(int id)
+    {
+        var confirmed = await JS.InvokeAsync<bool>("confirm", $"Удалить пользователя #{id}?");
+        if (confirmed)
+        {
+            var resp = await Http.DeleteAsync($"api/user/{id}");
+            if (resp.IsSuccessStatusCode)
+            {
+                await LoadUsers();
+            }
+        }
+    }
+
+    private string GetRoleName(int roleId)
+    {
+        return roleId switch
+        {
+            1 => "Менеджер",
+            2 => "Мастер",
+            3 => "Клиент",
+            _ => $"Роль {roleId}"
+        };
+    }
+} 

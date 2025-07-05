@@ -1,0 +1,140 @@
+@page "/master-reviews/{MasterId:int}"
+@using SessiaBlazor.Model
+@inject HttpClient Http
+@inject NavigationManager Nav
+
+<div class="reviews-container">
+    <div class="reviews-card">
+        <h3 class="text-center mb-4">Отзывы о мастере</h3>
+        @if (loading)
+        {
+            <div class="text-muted text-center">Загрузка отзывов...</div>
+        }
+        else
+        {
+            <div class="mb-4 text-center">
+                <b>Средний рейтинг:</b>
+                @if (reviews.Count > 0)
+                {
+                    var avg = reviews.Average(r => r.Rating);
+                    @for (int i = 1; i <= 5; i++)
+                    {
+                        var starValue = i;
+                        <span class="star-big" style="color:@(avg >= starValue ? "#ff9800" : "#ccc")">&#9733;</span>
+                    }
+                    <span class="ms-2 rating-number">@avg.ToString("0.0")</span>
+                }
+                else
+                {
+                    <span class="text-muted">Нет отзывов</span>
+                }
+            </div>
+            <hr />
+            <h5 class="mb-3">Все отзывы:</h5>
+            @if (reviews.Count == 0)
+            {
+                <div class="text-muted text-center">Пока нет отзывов.</div>
+            }
+            else
+            {
+                <div class="review-list">
+                    @foreach (var r in reviews.OrderByDescending(r => r.CreatedAt))
+                    {
+                        <div class="review-item">
+                            <div>
+                                @for (int i = 1; i <= 5; i++)
+                                {
+                                    var starValue = i;
+                                    <span class="star-small" style="color:@(r.Rating >= starValue ? "#ff9800" : "#ccc")">&#9733;</span>
+                                }
+                                <span class="review-date">@r.CreatedAt.ToString("dd.MM.yyyy HH:mm")</span>
+                            </div>
+                            <div class="review-comment">@r.Comment</div>
+                        </div>
+                    }
+                </div>
+            }
+            <button class="btn btn-secondary mt-4 w-100" @onclick="GoBack">Назад</button>
+        }
+    </div>
+</div>
+
+<style>
+.reviews-container {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #ff9800 0%, #ff3d00 100%);
+}
+.reviews-card {
+    background: #fff;
+    border-radius: 22px;
+    padding: 2.7rem 2.2rem 2.2rem 2.2rem;
+    max-width: 600px;
+    width: 100%;
+    box-shadow: 0 10px 36px 0 rgba(255, 61, 0, 0.18);
+    border: 1.5px solid #ff9800;
+    position: relative;
+    z-index: 2;
+}
+.star-big {
+    font-size: 2.2rem;
+    vertical-align: middle;
+}
+.star-small {
+    font-size: 1.3rem;
+    vertical-align: middle;
+}
+.rating-number {
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: #ff9800;
+}
+.review-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.2rem;
+}
+.review-item {
+    background: #fffbe6;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px 0 rgba(255, 152, 0, 0.10);
+    padding: 1.1rem 1.3rem;
+    border: 1.5px solid #ff9800;
+}
+.review-date {
+    font-size: 0.95rem;
+    color: #888;
+    margin-left: 0.7em;
+}
+.review-comment {
+    margin-top: 0.5em;
+    font-size: 1.1rem;
+}
+</style>
+
+@code {
+    [Parameter] public int MasterId { get; set; }
+    private List<Review> reviews = new();
+    private bool loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        loading = true;
+        try
+        {
+            reviews = await Http.GetFromJsonAsync<List<Review>>($"api/review/bymaster/{MasterId}") ?? new List<Review>();
+        }
+        catch
+        {
+            reviews = new List<Review>();
+        }
+        loading = false;
+    }
+
+    private void GoBack()
+    {
+        Nav.NavigateTo("/");
+    }
+} 

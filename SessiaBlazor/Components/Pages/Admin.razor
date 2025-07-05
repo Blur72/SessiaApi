@@ -1,0 +1,211 @@
+@page "/admin"
+@using SessiaBlazor.Model
+@inject HttpClient Http
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+
+<div class="admin-bg-orange">
+    <div class="admin-card-orange shadow">
+        <h3 class="text-center mb-4">Админ-панель</h3>
+        @if (currentUser == null)
+        {
+            <p>Загрузка...</p>
+            <pre>currentUser: @System.Text.Json.JsonSerializer.Serialize(currentUser)</pre>
+        }
+        else if (currentUser.RoleId != 2)
+        {
+            <div class="alert alert-danger">Доступ запрещён</div>
+            <pre>currentUser: @System.Text.Json.JsonSerializer.Serialize(currentUser)</pre>
+        }
+        else
+        {
+            <div class="admin-tabs mb-4">
+                <button class="tab-btn @(activeTab==0 ? "active" : "")" @onclick="() => activeTab=0">Пользователи</button>
+                <button class="tab-btn @(activeTab==1 ? "active" : "")" @onclick="() => activeTab=1">Заявки</button>
+            </div>
+            <p>Пользователей загружено: @users?.Length</p>
+            @if (activeTab == 0)
+            {
+                <h5>Пользователи</h5>
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Имя пользователя</th>
+                            <th>Роль</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var user in users)
+                        {
+                            <tr>
+                                <td>@user.Id</td>
+                                <td>@user.UserName</td>
+                                <td>@GetRoleName(user.RoleId)</td>
+                                <td>
+                                    <select class="role-select" @onchange="e => ChangeRole(user, e.Value.ToString())" value="@user.RoleId">
+                                        <option value="1">Менеджер</option>
+                                        <option value="2">Мастер</option>
+                                        <option value="3">Клиент</option>
+                                    </select>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else if (activeTab == 1)
+            {
+                <h5>Заявки</h5>
+                <p>Тут будет таблица заявок (добавим на следующем шаге).</p>
+            }
+        }
+    </div>
+</div>
+
+<style>
+.admin-bg-orange {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #ff9800 0%, #ff3d00 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.admin-card-orange {
+    position: relative;
+    background: #fff;
+    border-radius: 22px;
+    padding: 2.7rem 2.2rem 2.2rem 2.2rem;
+    max-width: 800px;
+    width: 100%;
+    margin: 2rem auto;
+    box-shadow: 0 10px 36px 0 rgba(255, 61, 0, 0.18);
+    border: 1.5px solid #ff9800;
+    z-index: 2;
+}
+.admin-tabs {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+.tab-btn {
+    padding: 0.6rem 1.5rem;
+    border: none;
+    border-radius: 8px 8px 0 0;
+    background: #ffe0b2;
+    color: #ff3d00;
+    font-weight: 600;
+    font-size: 1.1rem;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.tab-btn.active, .tab-btn:hover {
+    background: linear-gradient(90deg, #ff9800 0%, #ff3d00 100%);
+    color: #fff;
+}
+.admin-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0 8px;
+    margin-top: 1rem;
+}
+.admin-table th, .admin-table td {
+    padding: 0.7rem 1.1rem;
+    background: #fff3e0;
+    border: none;
+    border-radius: 8px;
+    text-align: left;
+}
+.admin-table th {
+    background: #ff9800;
+    color: #fff;
+    font-weight: 700;
+}
+.role-select {
+    border-radius: 6px;
+    border: 1px solid #ff9800;
+    padding: 0.3rem 0.7rem;
+    font-size: 1rem;
+    color: #ff3d00;
+    background: #fff;
+    transition: border 0.2s;
+}
+.role-select:focus {
+    border: 2px solid #ff3d00;
+    outline: none;
+}
+</style>
+
+@code {
+    private SessiaBlazor.Model.User currentUser;
+    private User[] users = Array.Empty<User>();
+    private int activeTab = 0;
+    private bool _userLoaded = false;
+    private string json;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_userLoaded)
+        {
+            try
+            {
+                await LoadCurrentUser();
+            }
+            catch
+            {
+                // JS interop ещё не готов, попробуем позже
+                await Task.Delay(100);
+                StateHasChanged();
+                return;
+            }
+
+            if (currentUser == null)
+            {
+                // Попробуем ещё раз через небольшой delay
+                await Task.Delay(100);
+                await LoadCurrentUser();
+                if (currentUser == null)
+                {
+                    Navigation.NavigateTo("/login", true);
+                    return;
+                }
+            }
+            await LoadUsers();
+            _userLoaded = true;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadCurrentUser()
+    {
+        json = await JS.InvokeAsync<string>("localStorage.getItem", "currentUser");
+        if (!string.IsNullOrEmpty(json))
+        {
+            currentUser = System.Text.Json.JsonSerializer.Deserialize<SessiaBlazor.Model.User>(json);
+        }
+    }
+    private async Task LoadUsers()
+    {
+        users = await Http.GetFromJsonAsync<User[]>("api/user");
+    }
+    private string GetRoleName(int roleId)
+    {
+        return roleId switch
+        {
+            1 => "Менеджер",
+            2 => "Мастер",
+            3 => "Клиент",
+            _ => "-"
+        };
+    }
+    private async Task ChangeRole(User user, string newRoleIdStr)
+    {
+        if (int.TryParse(newRoleIdStr, out int newRoleId) && user.RoleId != newRoleId)
+        {
+            user.RoleId = newRoleId;
+            await Http.PutAsJsonAsync($"api/user/{user.Id}/role", new { RoleId = newRoleId });
+            await LoadUsers();
+        }
+    }
+} 

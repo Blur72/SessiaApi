@@ -1,0 +1,305 @@
+@rendermode InteractiveServer
+@page "/cars"
+@inject HttpClient Http
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@using SessiaBlazor.Model
+
+<div class="cars-bg-orange">
+    <div class="cars-card-orange shadow">
+        <h3 class="text-center mb-4">@(currentUser?.RoleId == 2 ? "Все автомобили" : "Мои автомобили")</h3>
+        @if (cars == null)
+        {
+            <p class="text-center">Загрузка...</p>
+        }
+        else
+        {
+            @if (cars.Length == 0)
+            {
+                <p class="text-center">Нет автомобилей.</p>
+            }
+            else
+            {
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Марка</th>
+                            <th>Модель</th>
+                            <th>Госномер</th>
+                            <th>Год</th>
+                            @if (currentUser?.RoleId == 2)
+                            {
+                                <th>Владелец</th>
+                                <th>Действия</th>
+                            }
+                            else
+                            {
+                                <th></th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var car in cars)
+                        {
+                            <tr>
+                                <td>@car.Brand</td>
+                                <td>@car.Model</td>
+                                <td>@car.LicensePlate</td>
+                                <td>@car.Year</td>
+                                @if (currentUser?.RoleId == 2)
+                                {
+                                    <td>@GetUserName(car.OwnerId)</td>
+                                    <td>
+                                        <button class="btn btn-orange btn-sm me-1" @onclick="() => EditCar(car)">✏️</button>
+                                        <button class="btn btn-danger btn-sm" @onclick="() => DeleteCar(car.Id)">🗑️</button>
+                                    </td>
+                                }
+                                else
+                                {
+                                    <td>
+                                        <button class="btn btn-danger btn-sm" @onclick="() => DeleteCar(car.Id)">Удалить</button>
+                                    </td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            <hr />
+            <h5 class="mb-2">Добавить автомобиль</h5>
+            <EditForm Model="newCar" OnValidSubmit="AddCar">
+                <div class="row g-2">
+                    <div class="col">
+                        <InputText @bind-Value="newCar.Brand" class="form-control" placeholder="Марка" />
+                    </div>
+                    <div class="col">
+                        <InputText @bind-Value="newCar.Model" class="form-control" placeholder="Модель" />
+                    </div>
+                </div>
+                <div class="row g-2 mt-2">
+                    <div class="col">
+                        <InputText @bind-Value="newCar.LicensePlate" class="form-control" placeholder="Госномер" />
+                    </div>
+                    <div class="col">
+                        <InputNumber @bind-Value="newCar.Year" class="form-control" placeholder="Год" />
+                    </div>
+                </div>
+                @if (currentUser?.RoleId == 2)
+                {
+                    <div class="mt-2">
+                        <label>Владелец</label>
+                        <InputSelect @bind-Value="newCar.OwnerId" class="form-control">
+                            <option value="">Выберите владельца</option>
+                            @foreach (var user in users)
+                            {
+                                <option value="@user.Id">@user.UserName</option>
+                            }
+                        </InputSelect>
+                    </div>
+                }
+                <button type="submit" class="btn btn-orange w-100 mt-3">Добавить</button>
+            </EditForm>
+            @if (showEditForm && editingCar != null)
+            {
+                <div class="mb-4 mt-3 p-3" style="background:#fffbe6; border-radius:12px; border:1.5px solid #ff9800; max-width:600px; margin:auto;">
+                    <h5>Редактирование автомобиля №@editingCar.Id</h5>
+                    <EditForm Model="editingCar" OnValidSubmit="SaveEditCar">
+                        <div class="row g-2">
+                            <div class="col">
+                                <InputText @bind-Value="editingCar.Brand" class="form-control" placeholder="Марка" />
+                            </div>
+                            <div class="col">
+                                <InputText @bind-Value="editingCar.Model" class="form-control" placeholder="Модель" />
+                            </div>
+                        </div>
+                        <div class="row g-2 mt-2">
+                            <div class="col">
+                                <InputText @bind-Value="editingCar.LicensePlate" class="form-control" placeholder="Госномер" />
+                            </div>
+                            <div class="col">
+                                <InputNumber @bind-Value="editingCar.Year" class="form-control" placeholder="Год" />
+                            </div>
+                        </div>
+                        @if (currentUser?.RoleId == 2)
+                        {
+                            <div class="mt-2">
+                                <label>Владелец</label>
+                                <InputSelect @bind-Value="editingCar.OwnerId" class="form-control">
+                                    <option value="">Выберите владельца</option>
+                                    @foreach (var user in users)
+                                    {
+                                        <option value="@user.Id">@user.UserName</option>
+                                    }
+                                </InputSelect>
+                            </div>
+                        }
+                        <button type="submit" class="btn btn-orange me-2 mt-3">Сохранить</button>
+                        <button type="button" class="btn btn-secondary mt-3" @onclick="() => showEditForm = false">Отмена</button>
+                    </EditForm>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+<style>
+.cars-bg-orange {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #ff9800 0%, #ff3d00 100%);
+}
+.cars-card-orange {
+    background: #fff;
+    border-radius: 22px;
+    padding: 2.7rem 2.2rem 2.2rem 2.2rem;
+    max-width: 600px;
+    width: 100%;
+    box-shadow: 0 10px 36px 0 rgba(255, 61, 0, 0.18);
+    transition: box-shadow 0.2s, transform 0.2s;
+    border: 1.5px solid #ff9800;
+    position: relative;
+    z-index: 2;
+}
+.cars-card-orange:focus-within, .cars-card-orange:hover {
+    box-shadow: 0 16px 48px 0 rgba(255, 61, 0, 0.28);
+    transform: translateY(-2px) scale(1.02);
+}
+.btn-orange {
+    background: linear-gradient(90deg, #ff9800 0%, #ff3d00 100%);
+    border: none;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 1.1rem;
+    padding: 0.8rem;
+    color: #fff;
+    box-shadow: 0 2px 8px 0 rgba(255, 152, 0, 0.12);
+    transition: background 0.2s, box-shadow 0.2s;
+}
+.btn-orange:hover {
+    background: linear-gradient(90deg, #ff6d00 0%, #d50000 100%);
+    box-shadow: 0 4px 16px 0 rgba(255, 61, 0, 0.18);
+}
+</style>
+
+@code {
+    private SessiaBlazor.Model.Car[] cars;
+    private SessiaBlazor.Model.Car newCar = new();
+    private SessiaBlazor.Model.User currentUser;
+    private bool _userLoaded = false;
+    private SessiaBlazor.Model.User[] users;
+    private SessiaBlazor.Model.Car editingCar;
+    private bool showEditForm = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_userLoaded)
+        {
+            await LoadCurrentUser();
+            if (currentUser == null)
+            {
+                Navigation.NavigateTo("/login", true);
+                return;
+            }
+            await LoadCars();
+            if (currentUser.RoleId == 2)
+            {
+                await LoadUsers();
+            }
+            _userLoaded = true;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadCurrentUser()
+    {
+        var json = await JS.InvokeAsync<string>("localStorage.getItem", "currentUser");
+        if (!string.IsNullOrEmpty(json))
+        {
+            currentUser = System.Text.Json.JsonSerializer.Deserialize<SessiaBlazor.Model.User>(json);
+        }
+    }
+
+    private async Task LoadUsers()
+    {
+        users = await Http.GetFromJsonAsync<SessiaBlazor.Model.User[]>("api/user");
+    }
+
+    private async Task LoadCars()
+    {
+        Car[] allCars = null;
+        try
+        {
+            allCars = await Http.GetFromJsonAsync<Car[]>("api/car");
+        }
+        catch
+        {
+            allCars = Array.Empty<Car>();
+        }
+        if (currentUser == null)
+        {
+            cars = Array.Empty<Car>();
+            return;
+        }
+        if (currentUser.RoleId == 2)
+        {
+            cars = allCars;
+        }
+        else
+        {
+            cars = allCars.Where(c => c.OwnerId == currentUser.Id).ToArray();
+        }
+    }
+
+    private string GetUserName(int ownerId)
+    {
+        var user = users?.FirstOrDefault(u => u.Id == ownerId);
+        return user?.UserName ?? $"ID {ownerId}";
+    }
+
+    private async Task AddCar()
+    {
+        newCar.OwnerId = currentUser.Id;
+        var response = await Http.PostAsJsonAsync("api/car", newCar);
+        if (response.IsSuccessStatusCode)
+        {
+            await LoadCars();
+            newCar = new();
+        }
+    }
+
+    private async Task DeleteCar(int id)
+    {
+        var response = await Http.DeleteAsync($"api/car/{id}");
+        if (response.IsSuccessStatusCode)
+        {
+            await LoadCars();
+        }
+    }
+
+    private void EditCar(Car car)
+    {
+        editingCar = new Car
+        {
+            Id = car.Id,
+            Brand = car.Brand,
+            Model = car.Model,
+            LicensePlate = car.LicensePlate,
+            Year = car.Year,
+            OwnerId = car.OwnerId
+        };
+        showEditForm = true;
+    }
+
+    private async Task SaveEditCar()
+    {
+        var resp = await Http.PutAsJsonAsync($"api/car/{editingCar.Id}", editingCar);
+        if (resp.IsSuccessStatusCode)
+        {
+            showEditForm = false;
+            editingCar = null;
+            await LoadCars();
+        }
+    }
+} 

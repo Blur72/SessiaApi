@@ -1,0 +1,329 @@
+﻿@page "/"
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject HttpClient Http
+@rendermode InteractiveServer
+
+<div class="register-bg-orange">
+    <div class="register-card-orange shadow">
+        <button class="btn btn-orange logout-btn" @onclick="Logout" title="Выйти">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M16 17L21 12L16 7" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M21 12H9" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M12 19C7.58172 19 4 15.4183 4 11C4 6.58172 7.58172 3 12 3" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+        </button>
+        <h2 class="text-center mb-3">Добро пожаловать в платформу автосервиса!</h2>
+        @if (currentUser != null)
+        {
+            <p class="text-center mb-4">Здравствуйте, <b>@currentUser.UserName</b>!</p>
+            @if (currentUser.RoleId == 2)
+            {
+                <hr />
+                <h4 class="text-center mt-4 mb-3">Навигация:</h4>
+                <div class="d-grid gap-2">
+                    <button class="btn btn-orange w-100 mb-2" @onclick="GoToAllRequests">Все заявки</button>
+                    <button class="btn btn-orange w-100 mb-2" @onclick="GoToAllCars">Все автомобили</button>
+                    <button class="btn btn-orange w-100 mb-2" @onclick="GoToSpares">Запчасти</button>
+                    <button class="btn btn-orange w-100 mb-2" @onclick="GoToUsers">Пользователи</button>
+                    <button class="btn btn-orange w-100 mb-2" @onclick="GoToPayments">Платежи</button>
+                </div>
+            }
+            else if (currentUser.RoleId == 1)
+            {
+                <hr />
+                <h4 class="text-center mt-4 mb-3">Навигация:</h4>
+                <div class="d-grid gap-2">
+                    <button class="btn btn-orange w-100 mb-2" @onclick="GoToMyRequests">Мои заявки</button>
+                    <button class="btn btn-orange w-100 mb-2" @onclick="GoToMyReviews">Мои отзывы</button>
+                </div>
+            }
+            else if (currentUser.RoleId == 3)
+            {
+                <div class="d-grid gap-2">
+                    <button class="btn btn-orange w-100 mb-2" @onclick="GoToMyRequests">Мои заявки</button>
+                    <button class="btn btn-orange w-100 mb-2 position-relative" @onclick="ShowNotifications">
+                        Уведомления
+                        @if (newCompletedCount > 0)
+                        {
+                            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                                @newCompletedCount
+                            </span>
+                        }
+                    </button>
+                </div>
+            }
+            else
+            {
+                <p class="text-center mb-4">Вы не авторизованы. <a href="/login">Войти</a> или <a href="/registration">Зарегистрироваться</a></p>
+            }
+        }
+    </div>
+</div>
+
+@if (showNotifications)
+{
+    <div class="modal fade show" style="display: block; background: rgba(0,0,0,0.5);" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">История уведомлений</h5>
+                    <button type="button" class="btn-close" @onclick="ToggleNotifications"></button>
+                </div>
+                <div class="modal-body">
+                    @if (notificationHistory.Count == 0)
+                    {
+                        <div class="text-muted">Нет уведомлений.</div>
+                    }
+                    else
+                    {
+                        <ul>
+                            @foreach (var n in notificationHistory.OrderByDescending(n => n.Date))
+                            {
+                                <li>
+                                    @n.Date.ToString("dd.MM.yyyy HH:mm") — @n.Message
+                                    @if (n is ReviewNotification reviewNotif && !reviewNotif.HasReview)
+                                    {
+                                        <button class="btn btn-sm btn-orange ms-2" @onclick="() => OpenReviewModal(reviewNotif.RequestId, reviewNotif.MasterId)">Оставить отзыв</button>
+                                    }
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="ToggleNotifications">Закрыть</button>
+                    <button class="btn btn-danger" @onclick="ClearNotificationHistory">Очистить историю</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+@if (showReviewModal)
+{
+    <div class="modal fade show" style="display: block; background: rgba(0,0,0,0.5);" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Оставить отзыв</h5>
+                    <button type="button" class="btn-close" @onclick="CloseReviewModal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-2">Поставьте оценку:</div>
+                    <div class="mb-2">
+                        @for (int i = 1; i <= 5; i++)
+                        {
+                            var starValue = i;
+                            <span style="font-size:2rem;cursor:pointer;color:@(reviewModalRating >= starValue ? "#ff9800" : "#ccc")" @onclick="() => reviewModalRating = starValue">&#9733;</span>
+                        }
+                    </div>
+                    <textarea class="form-control mb-2" @bind="reviewModalComment" placeholder="Оставьте комментарий..."></textarea>
+                    @if (!string.IsNullOrEmpty(reviewModalError))
+                    {
+                        <div class="text-danger mt-2">@reviewModalError</div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="CloseReviewModal">Отмена</button>
+                    <button class="btn btn-orange" @onclick="SaveReviewFromModal" disabled="@(reviewModalRating == 0)">Оставить отзыв</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+.logout-btn {
+    position: absolute;
+    top: 18px;
+    right: 24px;
+    cursor: pointer;
+    padding: 4px;
+    transition: background 0.2s;
+    border-radius: 50%;
+}
+.logout-btn:hover {
+    background: #fff3e0;
+    box-shadow: 0 2px 8px 0 rgba(255, 61, 0, 0.10);
+}
+</style>
+
+@code {
+    private SessiaBlazor.Model.User currentUser;
+    private bool _userLoaded = false;
+    private int newCompletedCount = 0;
+    private List<int> newCompletedIds = new();
+    private List<Car> cars = new();
+    private bool showNotifications = false;
+    private List<Notification> notificationHistory = new();
+    private bool showReviewModal = false;
+    private int reviewModalRequestId;
+    private int reviewModalMasterId;
+    private int reviewModalRating = 0;
+    private string reviewModalComment = string.Empty;
+    private string reviewModalError = null;
+
+    public class Notification
+    {
+        public string Message { get; set; }
+        public DateTime Date { get; set; }
+    }
+
+    public class ReviewNotification : Notification
+    {
+        public int RequestId { get; set; }
+        public int MasterId { get; set; }
+        public bool HasReview { get; set; }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_userLoaded)
+        {
+            await LoadCurrentUser();
+            if (currentUser == null)
+            {
+                Navigation.NavigateTo("/login", true);
+                return;
+            }
+            if (currentUser.RoleId == 3)
+            {
+                cars = await Http.GetFromJsonAsync<List<Car>>("api/car");
+                await LoadNotificationHistory();
+                await CheckForCompletedRequests();
+            }
+            _userLoaded = true;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadCurrentUser()
+    {
+        var json = await JS.InvokeAsync<string>("localStorage.getItem", "currentUser");
+        if (!string.IsNullOrEmpty(json))
+        {
+            currentUser = System.Text.Json.JsonSerializer.Deserialize<SessiaBlazor.Model.User>(json);
+        }
+    }
+
+    private async Task Logout()
+    {
+        await JS.InvokeVoidAsync("localStorage.removeItem", "currentUser");
+        Navigation.NavigateTo("/login", true);
+    }
+
+    private void GoToAllRequests() => Navigation.NavigateTo("/requests");
+    private void GoToAllCars() => Navigation.NavigateTo("/cars");
+    private void GoToSpares() => Navigation.NavigateTo("/spares");
+    private void GoToUsers() => Navigation.NavigateTo("/users");
+    private void GoToPayments() => Navigation.NavigateTo("/payments");
+    private void GoToMyRequests() => Navigation.NavigateTo("/requests");
+    private void GoToMyReviews() => Navigation.NavigateTo($"/master-reviews/{currentUser.Id}");
+
+    private async Task LoadNotificationHistory()
+    {
+        var json = await JS.InvokeAsync<string>("localStorage.getItem", "notificationHistory");
+        notificationHistory = string.IsNullOrEmpty(json)
+            ? new List<Notification>()
+            : System.Text.Json.JsonSerializer.Deserialize<List<Notification>>(json);
+    }
+
+    private async Task SaveNotificationHistory()
+    {
+        await JS.InvokeVoidAsync("localStorage.setItem", "notificationHistory", System.Text.Json.JsonSerializer.Serialize(notificationHistory));
+    }
+
+    private void ToggleNotifications()
+    {
+        showNotifications = !showNotifications;
+    }
+
+    private async Task CheckForCompletedRequests()
+    {
+        var requests = await JS.InvokeAsync<string>("localStorage.getItem", "currentUserRequests");
+        List<int> completedIds = new();
+        if (!string.IsNullOrEmpty(requests))
+        {
+            var allRequests = System.Text.Json.JsonSerializer.Deserialize<List<SessiaBlazor.Model.RepairRequest>>(requests);
+            completedIds = allRequests?.Where(r => r.Status == "Выполнено").Select(r => r.Id).ToList() ?? new List<int>();
+        }
+        else
+        {
+            var allRequests = await Http.GetFromJsonAsync<List<SessiaBlazor.Model.RepairRequest>>("api/repairrequest");
+            completedIds = allRequests?.Where(r => r.Status == "Выполнено").Select(r => r.Id).ToList() ?? new List<int>();
+        }
+        var json = await JS.InvokeAsync<string>("localStorage.getItem", "completedRequests");
+        var oldCompletedIds = string.IsNullOrEmpty(json) ? new List<int>() : System.Text.Json.JsonSerializer.Deserialize<List<int>>(json);
+        var newCompleted = completedIds.Except(oldCompletedIds).ToList();
+        newCompletedCount = newCompleted.Count;
+        newCompletedIds = newCompleted;
+        await JS.InvokeVoidAsync("localStorage.setItem", "completedRequests", System.Text.Json.JsonSerializer.Serialize(completedIds));
+
+        // Добавляем уведомления в историю
+        if (newCompletedCount > 0)
+        {
+            var allRequests = await Http.GetFromJsonAsync<List<RepairRequest>>("api/repairrequest");
+            var completedRequests = allRequests.Where(r => newCompletedIds.Contains(r.Id)).ToList();
+            var carNames = completedRequests.Select(r => {
+                var car = cars.FirstOrDefault(c => c.Id == r.CarId);
+                return car != null ? $"{car.Brand} {car.Model}" : $"ID {r.CarId}";
+            });
+            var msg = $"Выполнена заявка: {string.Join(", ", carNames)}";
+            notificationHistory.Add(new ReviewNotification { Message = msg, Date = DateTime.Now, RequestId = completedRequests[0].Id, MasterId = completedRequests[0].MasterId ?? 0, HasReview = false });
+            await SaveNotificationHistory();
+        }
+    }
+
+    private async Task ShowNotifications()
+    {
+        ToggleNotifications();
+    }
+
+    private async Task ClearNotificationHistory()
+    {
+        notificationHistory.Clear();
+        await SaveNotificationHistory();
+        showNotifications = false;
+    }
+
+    private void OpenReviewModal(int requestId, int masterId)
+    {
+        reviewModalRequestId = requestId;
+        reviewModalMasterId = masterId;
+        reviewModalRating = 0;
+        reviewModalComment = string.Empty;
+        reviewModalError = null;
+        showReviewModal = true;
+    }
+    private void CloseReviewModal()
+    {
+        showReviewModal = false;
+    }
+    private async Task SaveReviewFromModal()
+    {
+        reviewModalError = null;
+        if (reviewModalRating == 0)
+        {
+            reviewModalError = "Поставьте оценку";
+            return;
+        }
+        var createRequest = new
+        {
+            RepairRequestId = reviewModalRequestId,
+            ClientId = currentUser.Id,
+            MasterId = reviewModalMasterId,
+            Rating = reviewModalRating,
+            Comment = reviewModalComment
+        };
+        var resp = await Http.PostAsJsonAsync("api/review", createRequest);
+        if (resp.IsSuccessStatusCode)
+        {
+            showReviewModal = false;
+            // Можно обновить уведомления или пометить, что отзыв оставлен
+        }
+        else
+        {
+            reviewModalError = "Ошибка при сохранении отзыва";
+        }
+    }
+}

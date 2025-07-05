@@ -1,0 +1,52 @@
+﻿@using SessiaBlazor.Components.Layout
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="stylesheet" href="bootstrap/bootstrap.min.css" />
+    <link rel="stylesheet" href="app.css" />
+    <link rel="stylesheet" href="SessiaBlazor.styles.css" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <HeadOutlet />
+</head>
+
+<body>
+    <CascadingAuthenticationState>
+        <Router AppAssembly="@typeof(Program).Assembly">
+            <Found Context="routeData">
+                <RouteView RouteData="@routeData" DefaultLayout="typeof(MainLayout)" />
+            </Found>
+            <NotFound>
+                <LayoutView Layout="typeof(MainLayout)">
+                    <p>Страница не найдена</p>
+                </LayoutView>
+            </NotFound>
+        </Router>
+    </CascadingAuthenticationState>
+    <script src="_framework/blazor.web.js"></script>
+</body>
+
+</html>
+
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+
+@code {
+    private bool _checkedAuth = false;
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_checkedAuth)
+        {
+            var json = await JS.InvokeAsync<string>("localStorage.getItem", "currentUser");
+            if (string.IsNullOrEmpty(json) && !Navigation.Uri.EndsWith("/login"))
+            {
+                Navigation.NavigateTo("/login", true);
+                return;
+            }
+            _checkedAuth = true;
+        }
+    }
+}

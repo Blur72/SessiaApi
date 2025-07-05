@@ -1,0 +1,286 @@
+@rendermode InteractiveServer
+@page "/requests"
+@using SessiaBlazor.Model
+@inject HttpClient Http
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<div class="requests-bg-orange">
+    <div class="requests-card-orange shadow">
+        <h3 class="text-center mb-4">Мои заявки</h3>
+        <button class="btn btn-orange w-100 mb-3" @onclick="() => showCreateForm = !showCreateForm">@((showCreateForm ? "Отмена" : "Создать заявку"))</button>
+        @if (showCreateForm)
+        {
+            <EditForm Model="newRequest" OnValidSubmit="CreateRequest">
+                <div class="mb-2">
+                    <label>Автомобиль</label>
+                    <InputSelect @bind-Value="newRequest.CarId" class="form-control">
+                        <option value="">Выберите авто</option>
+                        @foreach (var car in cars)
+                        {
+                            <option value="@car.Id">@car.Brand @car.Model</option>
+                        }
+                    </InputSelect>
+                </div>
+                <div class="mb-2">
+                    <label>Описание</label>
+                    <InputTextArea @bind-Value="newRequest.Description" class="form-control" placeholder="Опишите проблему" />
+                </div>
+                <div class="mb-2">
+                    <label>Желаемая дата</label>
+                    <InputDate @bind-Value="newRequest.DesiredDate" class="form-control" />
+                </div>
+                <button type="submit" class="btn btn-orange w-100">Отправить</button>
+            </EditForm>
+            <hr />
+        }
+        @if (showEditForm && editingRequest != null)
+        {
+            <div class="mb-4 mt-3 p-3" style="background:#fffbe6; border-radius:12px; border:1.5px solid #ff9800; max-width:600px; margin:auto;">
+                <h5>Редактирование заявки №@editingRequest.Id</h5>
+                <EditForm Model="editingRequest" OnValidSubmit="SaveEditRequest">
+                    <div class="mb-2">
+                        <label>Автомобиль</label>
+                        <InputSelect @bind-Value="editingRequest.CarId" class="form-control">
+                            <option value="">Выберите авто</option>
+                            @foreach (var car in cars)
+                            {
+                                <option value="@car.Id">@car.Brand @car.Model</option>
+                            }
+                        </InputSelect>
+                    </div>
+                    <div class="mb-2">
+                        <label>Статус</label>
+                        <InputText @bind-Value="editingRequest.Status" class="form-control" />
+                    </div>
+                    <div class="mb-2">
+                        <label>Описание</label>
+                        <InputTextArea @bind-Value="editingRequest.Description" class="form-control" />
+                    </div>
+                    <div class="mb-2">
+                        <label>Желаемая дата</label>
+                        <InputDate @bind-Value="editingRequest.DesiredDate" class="form-control" />
+                    </div>
+                    <button type="submit" class="btn btn-orange me-2">Сохранить</button>
+                    <button type="button" class="btn btn-secondary" @onclick="() => showEditForm = false">Отмена</button>
+                </EditForm>
+            </div>
+        }
+        @if (requests == null)
+        {
+            <p class="text-center">Загрузка...</p>
+        }
+        else if (requests.Length == 0)
+        {
+            <p class="text-center">У вас пока нет заявок.</p>
+        }
+        else
+        {
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>Автомобиль</th>
+                        <th>Статус</th>
+                        <th>Дата создания</th>
+                        <th></th>
+                        @if (currentUser != null && currentUser.RoleId == 2)
+                        {
+                            <th>Действия</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var req in requests)
+                    {
+                        <tr>
+                            <td>@GetCarName(req.CarId)</td>
+                            <td>@req.Status</td>
+                            <td>@req.CreatedAt.ToString("dd.MM.yyyy")</td>
+                            <td>
+                                <button class="btn btn-orange btn-sm" @onclick="() => GoToDetails(req.Id)">Подробнее</button>
+                            </td>
+                            @if (currentUser != null && currentUser.RoleId == 2)
+                            {
+                                <td>
+                                    <button class="btn btn-orange btn-sm me-1" @onclick="() => EditRequest(req)">✏️</button>
+                                    <button class="btn btn-danger btn-sm" @onclick="() => DeleteRequest(req.Id)">🗑️</button>
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+</div>
+
+<style>
+.requests-bg-orange {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #ff9800 0%, #ff3d00 100%);
+}
+.requests-card-orange {
+    background: #fff;
+    border-radius: 22px;
+    padding: 2.7rem 2.2rem 2.2rem 2.2rem;
+    max-width: 700px;
+    width: 100%;
+    box-shadow: 0 10px 36px 0 rgba(255, 61, 0, 0.18);
+    transition: box-shadow 0.2s, transform 0.2s;
+    border: 1.5px solid #ff9800;
+    position: relative;
+    z-index: 2;
+}
+.btn-orange {
+    background: linear-gradient(90deg, #ff9800 0%, #ff3d00 100%);
+    border: none;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 1.1rem;
+    padding: 0.5rem 1.2rem;
+    color: #fff;
+    box-shadow: 0 2px 8px 0 rgba(255, 152, 0, 0.12);
+    transition: background 0.2s, box-shadow 0.2s;
+}
+.btn-orange:hover {
+    background: linear-gradient(90deg, #ff6d00 0%, #d50000 100%);
+    box-shadow: 0 4px 16px 0 rgba(255, 61, 0, 0.18);
+}
+</style>
+
+@code {
+    private RepairRequest[] requests;
+    private Car[] cars;
+    private bool showCreateForm = false;
+    private CreateRepairRequest newRequest = new CreateRepairRequest();
+    private SessiaBlazor.Model.User currentUser;
+    private bool _userLoaded = false;
+    private RepairRequest editingRequest;
+    private bool showEditForm = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_userLoaded)
+        {
+            await LoadCurrentUser();
+            if (currentUser == null)
+            {
+                Nav.NavigateTo("/login", true);
+                return;
+            }
+            await LoadRequests();
+            _userLoaded = true;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadCurrentUser()
+    {
+        var json = await JS.InvokeAsync<string>("localStorage.getItem", "currentUser");
+        if (!string.IsNullOrEmpty(json))
+        {
+            currentUser = System.Text.Json.JsonSerializer.Deserialize<SessiaBlazor.Model.User>(json);
+        }
+    }
+
+    private async Task LoadRequests()
+    {
+        if (currentUser == null)
+        {
+            requests = Array.Empty<RepairRequest>();
+            cars = Array.Empty<Car>();
+            return;
+        }
+        requests = await Http.GetFromJsonAsync<RepairRequest[]>("api/repairrequest");
+        cars = await Http.GetFromJsonAsync<Car[]>("api/car");
+        if (currentUser.RoleId == 1)
+        {
+            requests = requests.Where(r => r.MasterId == currentUser.Id).ToArray();
+        }
+        else if (currentUser.RoleId == 3)
+        {
+            requests = requests.Where(r => r.ClientId == currentUser.Id).ToArray();
+        }
+        // Менеджер (RoleId == 2) видит все заявки
+    }
+
+    private string GetCarName(int carId)
+    {
+        var car = cars?.FirstOrDefault(c => c.Id == carId);
+        return car != null ? $"{car.Brand} {car.Model}" : "-";
+    }
+
+    private void GoToDetails(int requestId)
+    {
+        Nav.NavigateTo($"/request/{requestId}");
+    }
+
+    private async Task CreateRequest()
+    {
+        if (currentUser == null) return;
+        newRequest.ClientId = currentUser.Id;
+        newRequest.Status = "Создана";
+        newRequest.CreatedAt = DateTime.Now;
+        newRequest.UpdatedAt = DateTime.Now;
+        var response = await Http.PostAsJsonAsync("api/repairrequest", newRequest);
+        if (response.IsSuccessStatusCode)
+        {
+            showCreateForm = false;
+            newRequest = new();
+            await LoadRequests();
+        }
+    }
+
+    private void EditRequest(RepairRequest req)
+    {
+        editingRequest = new RepairRequest
+        {
+            Id = req.Id,
+            ClientId = req.ClientId,
+            CarId = req.CarId,
+            Status = req.Status,
+            CreatedAt = req.CreatedAt
+        };
+        showEditForm = true;
+    }
+
+    private async Task DeleteRequest(int id)
+    {
+        var confirmed = await JS.InvokeAsync<bool>("confirm", $"Удалить заявку #{id}?");
+        if (confirmed)
+        {
+            var resp = await Http.DeleteAsync($"api/repairrequest/{id}");
+            if (resp.IsSuccessStatusCode)
+            {
+                await LoadRequests();
+            }
+        }
+    }
+
+    private async Task SaveEditRequest()
+    {
+        if (editingRequest == null) return;
+        var update = new UpdateRepairRequest
+        {
+            CarId = editingRequest.CarId,
+            ClientId = editingRequest.ClientId,
+            ManagerId = null,
+            MasterId = null,
+            Description = editingRequest.Description ?? string.Empty,
+            Status = editingRequest.Status ?? string.Empty,
+            DesiredDate = editingRequest.DesiredDate == default ? DateTime.Now : editingRequest.DesiredDate
+        };
+        var resp = await Http.PutAsJsonAsync($"api/repairrequest/{editingRequest.Id}", update);
+        if (resp.IsSuccessStatusCode)
+        {
+            showEditForm = false;
+            editingRequest = null;
+            await LoadRequests();
+        }
+    }
+
+
+} 

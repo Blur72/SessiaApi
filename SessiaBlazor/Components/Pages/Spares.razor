@@ -1,0 +1,241 @@
+@page "/spares"
+@inject HttpClient Http
+@inject IJSRuntime JS
+@using System.Net.Http.Json
+@rendermode InteractiveServer
+
+<div class="spares-bg-orange">
+    <div class="spares-card-orange shadow">
+        <h3 class="text-center mb-4">Склад запчастей</h3>
+        @if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="alert alert-danger">@errorMessage</div>
+        }
+        @if (spares == null)
+        {
+            <p class="text-center">Загрузка...</p>
+        }
+        else
+        {
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Название</th>
+                        <th>Остаток</th>
+                        <th>Цена</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var part in spares)
+                    {
+                        <tr>
+                            <td>@part.Id</td>
+                            <td>@part.Name</td>
+                            <td>@part.Quantity</td>
+                            <td>@part.Price.ToString("C")</td>
+                            <td>
+                                <button class="btn btn-orange btn-sm me-1" @onclick="() => EditPart(part)">✏️</button>
+                                <button class="btn btn-danger btn-sm" @onclick="() => DeletePart(part.Id)">🗑️</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            <hr />
+            <h5 class="mb-2">Добавить запчасть</h5>
+            <EditForm Model="newPart" OnValidSubmit="AddPart" FormName="AddPartForm">
+                <div class="row g-2">
+                    <div class="col">
+                        <InputText @bind-Value="newPart.Name" class="form-control" placeholder="Название" required />
+                    </div>
+                    <div class="col">
+                        <InputNumber @bind-Value="newPart.Quantity" class="form-control" placeholder="Остаток" min="0" required />
+                    </div>
+                    <div class="col">
+                        <InputNumber @bind-Value="newPart.Price" class="form-control" placeholder="Цена" />
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-orange w-100 mt-3">Добавить</button>
+            </EditForm>
+            @if (showEditForm && editingPart != null)
+            {
+                <div class="mb-4 mt-3 p-3" style="background:#fffbe6; border-radius:12px; border:1.5px solid #ff9800; max-width:600px; margin:auto;">
+                    <h5>Редактирование запчасти №@editingPartId</h5>
+                    <EditForm Model="editingPart" OnValidSubmit="SaveEditPart" FormName="EditPartForm">
+                        <div class="row g-2">
+                            <div class="col">
+                                <InputText @bind-Value="editingPart.Name" class="form-control" placeholder="Название" />
+                            </div>
+                            <div class="col">
+                                <InputNumber @bind-Value="editingPart.Quantity" class="form-control" placeholder="Остаток" min="0" required />
+                            </div>
+                            <div class="col">
+                                <InputNumber @bind-Value="editingPart.Price" class="form-control" placeholder="Цена" />
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-orange me-2 mt-3">Сохранить</button>
+                        <button type="button" class="btn btn-secondary mt-3" @onclick="() => showEditForm = false">Отмена</button>
+                    </EditForm>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+<style>
+.spares-bg-orange {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #ff9800 0%, #ff3d00 100%);
+}
+.spares-card-orange {
+    background: #fff;
+    border-radius: 22px;
+    padding: 2.7rem 2.2rem 2.2rem 2.2rem;
+    max-width: 700px;
+    width: 100%;
+    box-shadow: 0 10px 36px 0 rgba(255, 61, 0, 0.18);
+    transition: box-shadow 0.2s, transform 0.2s;
+    border: 1.5px solid #ff9800;
+    position: relative;
+    z-index: 2;
+}
+.btn-orange {
+    background: linear-gradient(90deg, #ff9800 0%, #ff3d00 100%);
+    border: none;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 1.1rem;
+    padding: 0.5rem 1.2rem;
+    color: #fff;
+    box-shadow: 0 2px 8px 0 rgba(255, 152, 0, 0.12);
+    transition: background 0.2s, box-shadow 0.2s;
+}
+.btn-orange:hover {
+    background: linear-gradient(90deg, #ff6d00 0%, #d50000 100%);
+    box-shadow: 0 4px 16px 0 rgba(255, 61, 0, 0.18);
+}
+</style>
+
+@code {
+    private PartDto[] spares;
+    private CreatePartRequest newPart = new();
+    private UpdatePartRequest editingPart;
+    private bool showEditForm = false;
+    private string errorMessage;
+    private int editingPartId;
+
+    public class CreatePartRequest
+    {
+        public string Name { get; set; }
+        public int Quantity { get; set; }
+        public decimal Price { get; set; }
+    }
+    public class UpdatePartRequest
+    {
+        public string Name { get; set; }
+        public int Quantity { get; set; }
+        public decimal Price { get; set; }
+    }
+    public class PartDto
+    {
+        public int Id { get; set; }
+        public string Name { get; set; }
+        public int Quantity { get; set; }
+        public decimal Price { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSpares();
+    }
+
+    private async Task LoadSpares()
+    {
+        spares = await Http.GetFromJsonAsync<PartDto[]>("api/part");
+    }
+
+    private async Task AddPart()
+    {
+        errorMessage = null;
+        if (string.IsNullOrWhiteSpace(newPart.Name))
+        {
+            errorMessage = "Название обязательно для заполнения!";
+            return;
+        }
+        var req = new CreatePartRequest
+        {
+            Name = newPart.Name,
+            Quantity = newPart.Quantity,
+            Price = newPart.Price
+        };
+        var resp = await Http.PostAsJsonAsync("api/part", req);
+        if (resp.IsSuccessStatusCode)
+        {
+            await LoadSpares();
+            newPart.Name = string.Empty;
+            newPart.Quantity = 0;
+            newPart.Price = 0;
+            StateHasChanged();
+        }
+        else
+        {
+            errorMessage = $"Ошибка при добавлении: {resp.StatusCode}";
+            var details = await resp.Content.ReadAsStringAsync();
+            if (!string.IsNullOrWhiteSpace(details)) errorMessage += $"\n{details}";
+        }
+    }
+
+    private void EditPart(PartDto part)
+    {
+        editingPart = new UpdatePartRequest
+        {
+            Name = part.Name,
+            Quantity = part.Quantity,
+            Price = part.Price
+        };
+        editingPartId = part.Id;
+        showEditForm = true;
+    }
+
+    private async Task SaveEditPart()
+    {
+        errorMessage = null;
+        var req = new UpdatePartRequest
+        {
+            Name = editingPart.Name,
+            Quantity = editingPart.Quantity,
+            Price = editingPart.Price
+        };
+        var resp = await Http.PutAsJsonAsync($"api/part/{editingPartId}", req);
+        if (resp.IsSuccessStatusCode)
+        {
+            showEditForm = false;
+            editingPart = null;
+            await LoadSpares();
+        }
+        else
+        {
+            errorMessage = $"Ошибка при сохранении: {resp.StatusCode}";
+            var details = await resp.Content.ReadAsStringAsync();
+            if (!string.IsNullOrWhiteSpace(details)) errorMessage += $"\n{details}";
+        }
+    }
+
+    private async Task DeletePart(int id)
+    {
+        var confirmed = await JS.InvokeAsync<bool>("confirm", $"Удалить запчасть #{id}?");
+        if (confirmed)
+        {
+            var resp = await Http.DeleteAsync($"api/part/{id}");
+            if (resp.IsSuccessStatusCode)
+            {
+                await LoadSpares();
+            }
+        }
+    }
+} 

@@ -1,0 +1,118 @@
+@page "/registration"
+@inject SessiaBlazor.Services.AuthApiService AuthApiService
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="register-bg-orange">
+    <div class="register-card-orange shadow">
+        <h3 class="text-center mb-4">Регистрация</h3>
+        <EditForm Model="registerModel" OnValidSubmit="HandleRegister" FormName="asd">
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+            <div class="mb-3">
+                <label class="form-label">Логин</label>
+                <InputText @bind-Value="registerModel.UserName" class="form-control" placeholder="Введите логин" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Пароль</label>
+                <InputText @bind-Value="registerModel.Password" type="password" class="form-control" placeholder="Введите пароль" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Роль</label>
+                <InputNumber @bind-Value="registerModel.RoleId" min="1" max="3" class="form-control" />
+                <span style="font-size:small">(1 — Менеджер, 2 — Мастер, 3 — Клиент)</span>
+            </div>
+            <button type="submit" class="btn btn-orange w-100">Зарегистрироваться</button>
+        </EditForm>
+        @if (successMessage != null)
+        {
+            <p class="text-success mt-3 text-center">@successMessage</p>
+        }
+        @if (errorMessage != null)
+        {
+            <p class="text-danger mt-3 text-center">@errorMessage</p>
+        }
+        <div class="mt-3 text-center">
+            <a href="/login">Уже есть аккаунт? Войти</a>
+        </div>
+    </div>
+</div>
+
+<style>
+.register-bg-orange {
+    min-height: 100vh;
+   display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #ff9800 0%, #ff3d00 100%);
+}
+.register-card-orange {
+    background: #fff;
+    border-radius: 22px;
+    padding: 2.7rem 2.2rem 2.2rem 2.2rem;
+    max-width: 390px;
+    width: 100%;
+    box-shadow: 0 10px 36px 0 rgba(255, 61, 0, 0.18);
+    transition: box-shadow 0.2s, transform 0.2s;
+    border: 1.5px solid #ff9800;
+    position: relative;
+    z-index: 2;
+}
+.register-card-orange:focus-within, .register-card-orange:hover {
+    box-shadow: 0 16px 48px 0 rgba(255, 61, 0, 0.28);
+    transform: translateY(-2px) scale(1.02);
+}
+.form-label {
+    font-weight: 500;
+    color: #ff3d00;
+}
+.form-control {
+    border-radius: 10px;
+    padding: 0.8rem 1.1rem;
+    font-size: 1.05rem;
+    border: 1.5px solid #ff9800;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+.form-control:focus {
+    border-color: #ff3d00;
+    box-shadow: 0 0 0 2px #ff980055;
+}
+.btn-orange {
+    background: linear-gradient(90deg, #ff9800 0%, #ff3d00 100%);
+    border: none;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 1.1rem;
+    padding: 0.8rem;
+    color: #fff;
+    box-shadow: 0 2px 8px 0 rgba(255, 152, 0, 0.12);
+    transition: background 0.2s, box-shadow 0.2s;
+}
+.btn-orange:hover {
+    background: linear-gradient(90deg, #ff6d00 0%, #d50000 100%);
+    box-shadow: 0 4px 16px 0 rgba(255, 61, 0, 0.18);
+}
+</style>
+
+@code {
+    private SessiaBlazor.Model.RegisterRequest registerModel = new();
+    private string successMessage;
+    private string errorMessage;
+
+    private async Task HandleRegister()
+    {
+        var result = await AuthApiService.RegisterAsync(registerModel);
+        if (result)
+        {
+            successMessage = "Регистрация успешна! Теперь вы можете войти.";
+            errorMessage = null;
+            registerModel = new();
+        }
+        else
+        {
+            errorMessage = "Ошибка регистрации.";
+            successMessage = null;
+        }
+    }
+} 

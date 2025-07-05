@@ -1,0 +1,6 @@
+@SessiaApi_HostAddress = http://localhost:5263
+
+GET {{SessiaApi_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

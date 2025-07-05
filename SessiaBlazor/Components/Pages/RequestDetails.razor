@@ -1,0 +1,791 @@
+@rendermode InteractiveServer
+@page "/request/{RequestId:int}"
+@using SessiaBlazor.Model
+@using Microsoft.AspNetCore.SignalR.Client
+
+@inject HttpClient Http
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<h3 class="text-center mb-4">Детали заявки</h3>
+@if (request == null)
+{
+    <p>Загрузка...</p>
+}
+else
+{
+    <div class="details-card-orange shadow">
+        <div class="mb-3">
+            <b>Автомобиль:</b> @carName
+        </div>
+        <div class="mb-3">
+            <b>Описание:</b> @request.Description
+        </div>
+        <div class="mb-3">
+            <b>Статус:</b>
+            @if (currentUser != null && currentUser.RoleId == 1 && request.MasterId == currentUser.Id)
+            {
+                <select class="form-select w-auto d-inline-block" @bind="editableStatus">
+                    <option value="В работе">В работе</option>
+                    <option value="Ожидает клиента">Ожидает клиента</option>
+                    <option value="Выполнено">Выполнено</option>
+                </select>
+                <button class="btn btn-orange btn-sm ms-2" @onclick="SaveStatus" disabled="@(editableStatus == request.Status)">Сохранить</button>
+            }
+            else
+            {
+                @request.Status
+            }
+        </div>
+        <div class="mb-3">
+            <b>Дата создания:</b> @request.CreatedAt.ToString("dd.MM.yyyy HH:mm")
+        </div>
+        <div class="mb-3">
+            <b>Желаемая дата:</b> @request.DesiredDate.ToString("dd.MM.yyyy")
+        </div>
+        <div class="mb-3">
+            <b>Менеджер:</b>
+            @if (currentUser != null && currentUser.RoleId == 2)
+            {
+                <select class="form-select w-auto d-inline-block" @bind="selectedManagerId">
+                    <option value="">Не назначен</option>
+                    @foreach (var user in users.Where(u => u.RoleId == 2))
+                    {
+                        <option value="@user.Id">@user.UserName</option>
+                    }
+                </select>
+                <button class="btn btn-orange btn-sm ms-2" @onclick="AssignManager" disabled="@(selectedManagerId == request.ManagerId)">Назначить</button>
+            }
+            else
+            {
+                @(request.ManagerId.HasValue ? GetUserName(request.ManagerId.Value) : "Не назначен")
+            }
+        </div>
+        <div class="mb-3">
+            <b>Мастер:</b> @(request.MasterId.HasValue ? GetUserName(request.MasterId.Value) : "Не назначен")
+        </div>
+        <hr />
+        <h5>История статусов</h5>
+        @if (statusHistory == null)
+        {
+            <div class="mb-3 text-muted">Загрузка истории...</div>
+        }
+        else if (statusHistory.Length == 0)
+        {
+            <div class="mb-3 text-muted">История пуста.</div>
+        }
+        else
+        {
+            <ul class="list-group mb-3">
+                @foreach (var h in statusHistory)
+                {
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <span><b>@h.Status</b> <span class="text-muted">@h.ChangedAt.ToString("dd.MM.yyyy HH:mm")</span></span>
+                        <span class="text-muted">
+                            @(h.ChangedById.HasValue ? GetUserName(h.ChangedById.Value) : "Система")
+                        </span>
+                        @if (!string.IsNullOrWhiteSpace(h.Comment))
+                        {
+                            <span class="ms-2">@h.Comment</span>
+                        }
+                    </li>
+                }
+            </ul>
+        }
+        <h5>Чат по заявке</h5>
+        <div class="mb-3 chat-box">
+            @if (isChatLoading)
+            {
+                <div>Загрузка чата...</div>
+            }
+            else
+            {
+                <div class="chat-messages">
+                    @foreach (var msg in chatMessages.OrderBy(m => m.SentAt))
+                    {
+                        <div class="chat-message @(currentUser != null && msg.SenderId == currentUser.Id ? "my-message" : "")">
+                            <b>@GetUserName(msg.SenderId):</b> @msg.Message
+                            <span class="chat-time">@msg.SentAt.ToString("HH:mm dd.MM.yyyy")</span>
+                        </div>
+                    }
+                </div>
+                <div class="chat-input mt-2">
+                    <input class="form-control" @bind="newMessage" @bind:event="oninput" placeholder="Введите сообщение..." @onkeydown="@(e => { if (e.Key == "Enter") SendMessage(); })" />
+                    <button class="btn btn-orange mt-2 w-100" @onclick="SendMessage">Отправить</button>
+                </div>
+            }
+        </div>
+        <h5>Запчасти по заявке</h5>
+        @if (currentUser != null && (currentUser.RoleId == 1 || currentUser.RoleId == 2))
+        {
+            <button class="btn btn-orange mb-3" @onclick="ShowAddPartDialog">Добавить запчасть</button>
+        }
+        @if (requestParts == null)
+        {
+            <div class="mb-3 text-muted">Загрузка запчастей...</div>
+        }
+        else if (requestParts.Length == 0)
+        {
+            <div class="mb-3 text-muted">Запчасти не добавлены.</div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Название</th>
+                            <th>Количество</th>
+                            <th>Цена</th>
+                            <th>Сумма</th>
+                            @if (currentUser != null && (currentUser.RoleId == 1 || currentUser.RoleId == 2))
+                            {
+                                <th>Действия</th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var part in requestParts)
+                        {
+                            <tr>
+                                <td>@part.Part.Name</td>
+                                <td>@part.Quantity</td>
+                                <td>@part.Part.Price.ToString("C")</td>
+                                <td>@((part.Quantity * part.Part.Price).ToString("C"))</td>
+                                @if (currentUser != null && (currentUser.RoleId == 1 || currentUser.RoleId == 2))
+                                {
+                                    <td>
+                                        <button class="btn btn-orange btn-sm me-1" @onclick="() => EditPart(part)">✏️</button>
+                                        <button class="btn btn-danger btn-sm" @onclick="() => DeletePart(part.Id)">🗑️</button>
+                                    </td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        <h5>Оплата</h5>
+        @{
+            var calculatedAmount = requestParts?.Sum(rp => rp.Quantity * rp.Part.Price) ?? 0;
+            var workFee = calculatedAmount * 0.5m; // 50% от суммы запчастей
+            var totalAmount = calculatedAmount + workFee; // Общая сумма счета
+        }
+        @if (payment == null)
+        {
+            <div class="mb-3">
+                <div><b>Запчасти:</b> @calculatedAmount.ToString("C")</div>
+                <div><b>Работа (50%):</b> @workFee.ToString("C")</div>
+                <div class="border-top pt-2 mt-2"><b>Итого к оплате:</b> @totalAmount.ToString("C")</div>
+                @if (currentUser != null && (currentUser.RoleId == 1 || currentUser.RoleId == 2))
+                {
+                    <button class="btn btn-orange mt-2" @onclick="CreatePayment">Создать счет</button>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="mb-2"><b>Запчасти:</b> @calculatedAmount.ToString("C")</div>
+            <div class="mb-2"><b>Работа (50%):</b> @workFee.ToString("C")</div>
+            <div class="mb-2 border-top pt-2"><b>Сумма счета:</b> @payment.Amount.ToString("C")</div>
+            <div class="mb-2"><b>Статус:</b> @payment.Status</div>
+            <div class="mb-2"><b>Дата оплаты:</b> @(payment.PaidAt.HasValue ? payment.PaidAt.Value.ToString("dd.MM.yyyy HH:mm") : "-")</div>
+            @if (payment.Status != "Оплачено")
+            {
+                @if (currentUser != null && currentUser.RoleId == 3 && request.ClientId == currentUser.Id)
+                {
+                    <div class="d-flex gap-2 mt-3">
+                        <button class="btn btn-orange w-100" @onclick="Pay" disabled="@isPaying">@((isPaying ? "Оплата..." : "Оплатить"))</button>
+                        <button class="btn btn-orange w-100" @onclick="GoBack">Назад к заявкам</button>
+                    </div>
+                    @if (!string.IsNullOrEmpty(payError))
+                    {
+                        <div class="text-danger mt-2">@payError</div>
+                    }
+                }
+                else
+                {
+                    <button class="btn btn-orange w-100 mt-3" @onclick="GoBack">Назад к заявкам</button>
+                }
+            }
+            else
+            {
+                <div class="text-success">Оплачено</div>
+                <button class="btn btn-orange w-100 mt-3" @onclick="GoBack">Назад к заявкам</button>
+            }
+        }
+        <h5>Отчет по заявке</h5>
+        @if (repairReport == null && currentUser != null && currentUser.RoleId == 1 && request.Status == "Выполнено")
+        {
+            <textarea class="form-control" @bind="newReportText" placeholder="Опишите выполненные работы"></textarea>
+            <button class="btn btn-orange mt-2" @onclick="SaveReport">Сохранить отчет</button>
+        }
+        else if (repairReport != null)
+        {
+            <div class="mb-2"><b>Мастер:</b> @GetUserName(repairReport.MasterId)</div>
+            <div class="mb-2"><b>Дата:</b> @repairReport.CreatedAt.ToString("dd.MM.yyyy HH:mm")</div>
+            <div class="mb-2"><b>Отчет:</b> @repairReport.ReportText</div>
+        }
+        else
+        {
+            <div class="text-muted">Отчет еще не заполнен.</div>
+        }
+        <h5>Отзыв клиента</h5>
+        @if (reviewLoading)
+        {
+            <div class="text-muted">Загрузка отзыва...</div>
+        }
+        else if (currentUser != null && currentUser.RoleId == 3 && request.Status == "Выполнено" && review == null && request.ClientId == currentUser.Id)
+        {
+            <div class="mb-2">Поставьте оценку:</div>
+            <div class="mb-2">
+                @for (int i = 1; i <= 5; i++)
+                {
+                    var starValue = i;
+                    <span style="font-size:2rem;cursor:pointer;color:@(newReviewRating >= starValue ? "#ff9800" : "#ccc")" @onclick="() => newReviewRating = starValue">&#9733;</span>
+                }
+            </div>
+            <textarea class="form-control mb-2" @bind="newReviewComment" placeholder="Оставьте комментарий..."></textarea>
+            <button class="btn btn-orange" @onclick="SaveReview" disabled="@(newReviewRating == 0)">Оставить отзыв</button>
+            @if (!string.IsNullOrEmpty(reviewError))
+            {
+                <div class="text-danger mt-2">@reviewError</div>
+            }
+        }
+        else if (review != null)
+        {
+            <div class="mb-2">Оценка:
+                @for (int i = 1; i <= 5; i++)
+                {
+                    var starValue = i;
+                    <span style="font-size:1.5rem;color:@(review.Rating >= starValue ? "#ff9800" : "#ccc")">&#9733;</span>
+                }
+            </div>
+            <div class="mb-2">Комментарий: <span>@review.Comment</span></div>
+            <div class="mb-2 text-muted">@review.CreatedAt.ToString("dd.MM.yyyy HH:mm")</div>
+        }
+        else
+        {
+            <div class="text-muted">Отзыв еще не оставлен.</div>
+        }
+    </div>
+}
+
+@if (showAddPartDialog)
+{
+    <div class="modal fade show" style="display: block; background: rgba(0,0,0,0.5);" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Добавить запчасть</h5>
+                    <button type="button" class="btn-close" @onclick="CloseAddPartDialog"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label>Запчасть</label>
+                        <select class="form-select" @bind="newPart.PartId">
+                            <option value="0">Выберите запчасть</option>
+                            @foreach (var part in allParts)
+                            {
+                                <option value="@part.Id">@part.Name - @part.Price.ToString("C")</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label>Количество</label>
+                        <input type="number" class="form-control" @bind="newPart.Quantity" min="1" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseAddPartDialog">Отмена</button>
+                    <button type="button" class="btn btn-orange" @onclick="AddPart">Добавить</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showEditPartDialog && editingPart != null)
+{
+    <div class="modal fade show" style="display: block; background: rgba(0,0,0,0.5);" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Редактировать запчасть</h5>
+                    <button type="button" class="btn-close" @onclick="CloseEditPartDialog"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label>Запчасть</label>
+                        <input type="text" class="form-control" value="@(editingPart?.Part?.Name ?? "")" readonly />
+                    </div>
+                    <div class="mb-3">
+                        <label>Количество</label>
+                        <input type="number" class="form-control" @bind="editingPart.Quantity" min="1" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseEditPartDialog">Отмена</button>
+                    <button type="button" class="btn btn-orange" @onclick="SavePart">Сохранить</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+.details-card-orange {
+    background: #fff;
+    border-radius: 22px;
+    padding: 2.7rem 2.2rem 2.2rem 2.2rem;
+    max-width: 600px;
+    margin: 2rem auto;
+    box-shadow: 0 10px 36px 0 rgba(255, 61, 0, 0.18);
+    border: 1.5px solid #ff9800;
+    position: relative;
+    z-index: 2;
+}
+.btn-orange {
+    background: linear-gradient(90deg, #ff9800 0%, #ff3d00 100%);
+    border: none;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 1.1rem;
+    padding: 0.8rem;
+    color: #fff;
+    box-shadow: 0 2px 8px 0 rgba(255, 152, 0, 0.12);
+    transition: background 0.2s, box-shadow 0.2s;
+}
+.btn-orange:hover {
+    background: linear-gradient(90deg, #ff6d00 0%, #d50000 100%);
+    box-shadow: 0 4px 16px 0 rgba(255, 61, 0, 0.18);
+}
+.chat-box {
+    background: #f8f8f8;
+    border-radius: 12px;
+    padding: 1rem;
+    min-height: 220px;
+    max-height: 320px;
+    overflow-y: auto;
+}
+.chat-messages {
+    max-height: 180px;
+    overflow-y: auto;
+}
+.chat-message {
+    margin-bottom: 0.5rem;
+    padding: 0.4rem 0.7rem;
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 1px 4px 0 rgba(255,152,0,0.07);
+    position: relative;
+}
+.my-message {
+    background: #ffe0b2;
+    text-align: right;
+}
+.chat-time {
+    font-size: 0.8em;
+    color: #888;
+    margin-left: 0.7em;
+}
+</style>
+
+@code {
+    [Parameter] public int RequestId { get; set; }
+    private RepairRequest request;
+    private string carName = "-";
+    private User[] users;
+    private Car[] cars;
+    private RepairRequestStatusHistory[] statusHistory;
+    private Payment payment;
+    private bool isPaying = false;
+    private string payError = null;
+    private HubConnection hubConnection;
+    private List<ChatMessage> chatMessages = new();
+    private string newMessage = string.Empty;
+    private bool isChatLoading = true;
+    private SessiaBlazor.Model.User currentUser;
+    private bool _userLoaded = false;
+    private string editableStatus;
+    private RepairPart[] requestParts;
+    private bool showAddPartDialog = false;
+    private bool showEditPartDialog = false;
+    private RepairPart editingPart;
+    private CreateRepairPartRequest newPart = new();
+    private Part[] allParts;
+    private int? selectedManagerId;
+    private RepairReport repairReport;
+    private string newReportText = string.Empty;
+    private Review review;
+    private bool reviewLoading = true;
+    private int newReviewRating = 0;
+    private string newReviewComment = string.Empty;
+    private string reviewError = null;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_userLoaded)
+        {
+            await LoadCurrentUser();
+            if (currentUser == null)
+            {
+                Nav.NavigateTo("/login", true);
+                return;
+            }
+            await LoadRequest();
+            editableStatus = request?.Status;
+            await InitChat();
+            await LoadReview();
+            _userLoaded = true;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadCurrentUser()
+    {
+        var json = await JS.InvokeAsync<string>("localStorage.getItem", "currentUser");
+        if (!string.IsNullOrEmpty(json))
+        {
+            currentUser = System.Text.Json.JsonSerializer.Deserialize<SessiaBlazor.Model.User>(json);
+        }
+    }
+
+    private async Task LoadRequest()
+    {
+        request = await Http.GetFromJsonAsync<RepairRequest>($"api/repairrequest/{RequestId}");
+        cars = await Http.GetFromJsonAsync<Car[]>("api/car");
+        users = await Http.GetFromJsonAsync<User[]>("api/user");
+        var car = cars?.FirstOrDefault(c => c.Id == request.CarId);
+        carName = car != null ? $"{car.Brand} {car.Model}" : "-";
+        try
+        {
+            statusHistory = await Http.GetFromJsonAsync<RepairRequestStatusHistory[]>($"api/repairrequest/{RequestId}/statushistory");
+        }
+        catch (HttpRequestException)
+        {
+            statusHistory = Array.Empty<RepairRequestStatusHistory>();
+        }
+        try
+        {
+            var payments = await Http.GetFromJsonAsync<Payment[]>("api/payment");
+            payment = payments?.FirstOrDefault(p => p.RepairRequestId == RequestId);
+        }
+        catch (HttpRequestException)
+        {
+            payment = null;
+        }
+        requestParts = await Http.GetFromJsonAsync<RepairPart[]>($"api/repairpart");
+        var requestPartsFiltered = requestParts?.Where(rp => rp.RepairRequestId == RequestId).ToArray();
+        requestParts = requestPartsFiltered ?? Array.Empty<RepairPart>();
+        allParts = await Http.GetFromJsonAsync<Part[]>("api/part");
+        try
+        {
+            repairReport = await Http.GetFromJsonAsync<RepairReport>($"api/repairreport/byrequest/{RequestId}");
+        }
+        catch (HttpRequestException)
+        {
+            // Отчет не найден, это нормально
+            repairReport = null;
+        }
+    }
+
+    private async Task InitChat()
+    {
+        isChatLoading = true;
+        chatMessages = new List<ChatMessage>();
+        // Загружаем историю сообщений через API
+        var msgs = await Http.GetFromJsonAsync<ChatMessage[]>($"api/chatmessage/byrequest/{RequestId}");
+        if (msgs != null) chatMessages = msgs.ToList();
+        // SignalR
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl("http://localhost:5263/chathub")
+            .Build();
+        hubConnection.On<int, string, string, DateTime>("ReceiveMessage", (userId, userName, message, sentAt) =>
+        {
+            InvokeAsync(() =>
+            {
+                chatMessages.Add(new ChatMessage
+                {
+                    RepairRequestId = RequestId,
+                    SenderId = userId,
+                    SenderName = userName,
+                    Message = message,
+                    SentAt = sentAt
+                });
+                StateHasChanged();
+            });
+        });
+        await hubConnection.StartAsync();
+        await hubConnection.InvokeAsync("JoinRequestChat", RequestId);
+        isChatLoading = false;
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(newMessage)) return;
+        // Сохраняем сообщение в БД через API
+        var createRequest = new {
+            RepairRequestId = RequestId,
+            SenderId = currentUser.Id,
+            MessageText = newMessage
+        };
+        var response = await Http.PostAsJsonAsync("api/chatmessage", createRequest);
+        if (response.IsSuccessStatusCode)
+        {
+            // После успешного сохранения рассылаем через SignalR
+            var senderName = currentUser.UserName;
+            await hubConnection.InvokeAsync("SendMessage", RequestId, currentUser.Id, senderName, newMessage);
+            newMessage = string.Empty;
+        }
+    }
+
+    private string GetUserName(int userId)
+    {
+        var user = users?.FirstOrDefault(u => u.Id == userId);
+        return user != null ? user.UserName : "-";
+    }
+
+    private void GoBack()
+    {
+        Nav.NavigateTo("/requests");
+    }
+
+    private async Task Pay()
+    {
+        isPaying = true;
+        payError = null;
+        try
+        {
+            var update = new {
+                RepairRequestId = payment.RepairRequestId,
+                Amount = payment.Amount,
+                PaidAt = DateTime.Now,
+                Status = "Оплачено"
+            };
+            var response = await Http.PutAsJsonAsync($"api/payment/{payment.Id}", update);
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadRequest();
+            }
+            else
+            {
+                payError = "Ошибка оплаты";
+            }
+        }
+        catch
+        {
+            payError = "Ошибка оплаты";
+        }
+        isPaying = false;
+    }
+
+    private async Task SaveStatus()
+    {
+        if (request == null || editableStatus == request.Status) return;
+        var update = new UpdateRepairRequest
+        {
+            CarId = request.CarId,
+            ClientId = request.ClientId,
+            ManagerId = request.ManagerId,
+            MasterId = request.MasterId,
+            Description = request.Description,
+            Status = editableStatus,
+            DesiredDate = request.DesiredDate
+        };
+        var resp = await Http.PutAsJsonAsync($"api/repairrequest/{request.Id}", update);
+        if (resp.IsSuccessStatusCode)
+        {
+            request.Status = editableStatus;
+            StateHasChanged();
+        }
+    }
+
+    private void ShowAddPartDialog()
+    {
+        showAddPartDialog = true;
+        newPart = new CreateRepairPartRequest { RepairRequestId = RequestId, PartId = 0, Quantity = 1 };
+    }
+
+    private void CloseAddPartDialog()
+    {
+        showAddPartDialog = false;
+    }
+
+    private void EditPart(RepairPart part)
+    {
+        showEditPartDialog = true;
+        editingPart = part;
+    }
+
+    private void CloseEditPartDialog()
+    {
+        showEditPartDialog = false;
+    }
+
+    private async Task AddPart()
+    {
+        if (newPart.PartId == 0) return;
+        
+        var response = await Http.PostAsJsonAsync("api/repairpart", newPart);
+        if (response.IsSuccessStatusCode)
+        {
+            showAddPartDialog = false;
+            await LoadRequest();
+        }
+    }
+
+    private async Task SavePart()
+    {
+        if (editingPart == null) return;
+        
+        var update = new UpdateRepairPartRequest
+        {
+            RepairRequestId = editingPart.RepairRequestId,
+            PartId = editingPart.PartId,
+            Quantity = editingPart.Quantity
+        };
+        
+        var response = await Http.PutAsJsonAsync($"api/repairpart/{editingPart.Id}", update);
+        if (response.IsSuccessStatusCode)
+        {
+            showEditPartDialog = false;
+            await LoadRequest();
+        }
+    }
+
+    private async Task DeletePart(int id)
+    {
+        var confirmed = await JS.InvokeAsync<bool>("confirm", "Удалить запчасть из заявки?");
+        if (confirmed)
+        {
+            var response = await Http.DeleteAsync($"api/repairpart/{id}");
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadRequest();
+            }
+        }
+    }
+
+    private async Task CreatePayment()
+    {
+        var calculatedAmount = requestParts?.Sum(rp => rp.Quantity * rp.Part.Price) ?? 0;
+        if (calculatedAmount <= 0)
+        {
+            await JS.InvokeVoidAsync("alert", "Нет запчастей для выставления счета");
+            return;
+        }
+
+        var workFee = calculatedAmount * 0.5m; // 50% от суммы запчастей
+        var totalAmount = calculatedAmount + workFee; // Общая сумма счета
+
+        var createRequest = new
+        {
+            RepairRequestId = RequestId,
+            Amount = totalAmount,
+            Status = "Ожидает оплаты"
+        };
+
+        var response = await Http.PostAsJsonAsync("api/payment", createRequest);
+        if (response.IsSuccessStatusCode)
+        {
+            await LoadRequest();
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", "Ошибка при создании счета");
+        }
+    }
+
+    private async Task AssignManager()
+    {
+        if (selectedManagerId == null) return;
+        
+        var update = new UpdateRepairRequest
+        {
+            CarId = request.CarId,
+            ClientId = request.ClientId,
+            ManagerId = selectedManagerId,
+            MasterId = request.MasterId,
+            Description = request.Description,
+            Status = request.Status,
+            DesiredDate = request.DesiredDate
+        };
+        
+        var resp = await Http.PutAsJsonAsync($"api/repairrequest/{request.Id}", update);
+        if (resp.IsSuccessStatusCode)
+        {
+            request.ManagerId = selectedManagerId;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveReport()
+    {
+        if (string.IsNullOrWhiteSpace(newReportText))
+        {
+            await JS.InvokeVoidAsync("alert", "Пожалуйста, введите описание выполненных работ");
+            return;
+        }
+
+        var createRequest = new
+        {
+            RepairRequestId = RequestId,
+            ReportText = newReportText,
+            MasterId = currentUser.Id
+        };
+
+        var response = await Http.PostAsJsonAsync("api/repairreport", createRequest);
+        if (response.IsSuccessStatusCode)
+        {
+            await LoadRequest();
+            newReportText = string.Empty;
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", "Ошибка при создании отчета");
+        }
+    }
+
+    private async Task LoadReview()
+    {
+        reviewLoading = true;
+        try
+        {
+            review = await Http.GetFromJsonAsync<Review>($"api/review/byrequest/{RequestId}");
+        }
+        catch
+        {
+            review = null;
+        }
+        reviewLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task SaveReview()
+    {
+        reviewError = null;
+        if (newReviewRating == 0)
+        {
+            reviewError = "Поставьте оценку";
+            return;
+        }
+        var createRequest = new
+        {
+            RepairRequestId = RequestId,
+            ClientId = currentUser.Id,
+            MasterId = request.MasterId,
+            Rating = newReviewRating,
+            Comment = newReviewComment
+        };
+        var resp = await Http.PostAsJsonAsync("api/review", createRequest);
+        if (resp.IsSuccessStatusCode)
+        {
+            await LoadReview();
+        }
+        else
+        {
+            reviewError = "Ошибка при сохранении отзыва";
+        }
+    }
+} 
